@@ -1,22 +1,98 @@
-# YouTube Sentiment Analysis with DistilBERT & SVM
+# 🎥 YouTube Sentiment Analysis with DistilBERT & Linear SVM
 
-Proyek ini dirancang untuk mengumpulkan, membersihkan, dan menganalisis sentimen komentar dari video YouTube menggunakan pendekatan kombinasi Deep Learning (**DistilBERT**) untuk pelabelan otomatis dan Machine Learning (**Linear SVM**) untuk klasifikasi.
+This project is an end-to-end Natural Language Processing (NLP) pipeline designed to collect, preprocess, and analyze YouTube comments automatically. It combines **DistilBERT**, a pretrained transformer model, for automatic sentiment pseudo-labeling with **Linear Support Vector Machine (Linear SVM)** for sentiment classification. The project also generates visualizations and exports processed datasets for further analysis.
 
 ---
 
-## 🚀 Fitur Utama & Penjelasan Kode
+# 🚀 Features
 
-Berikut adalah urutan logika kodingan per fitur utama yang digunakan dalam proyek ini:
+- Scrape YouTube comments from one or multiple videos
+- Automatic text preprocessing and cleaning
+- URL, mentions, numbers, and special character removal
+- English stopword removal
+- Automatic pseudo-labeling using DistilBERT
+- TF-IDF feature extraction
+- Sentiment classification using Linear SVM
+- Model evaluation using Confusion Matrix
+- Sentiment distribution visualization (Pie Chart)
+- Word Cloud generation for Positive and Negative comments
+- Automatic export of processed datasets, trained models, and visualizations
+- Detailed execution logging for monitoring the analysis process
 
-### 🔍 1. Scraping Komentar YouTube
-Fitur ini menggunakan library `youtube_comment_downloader` untuk mengambil komentar secara massal berdasarkan daftar URL video yang ditentukan dan menyimpannya ke bentuk data mentah (`.csv`).
+---
+
+# 📈 Workflow
+
+```text
+YouTube URLs
+      │
+      ▼
+Comment Scraping
+      │
+      ▼
+Text Cleaning
+(URLs, Mentions, Symbols,
+Numbers, Stopwords)
+      │
+      ▼
+Pseudo Labeling
+(DistilBERT)
+      │
+      ▼
+TF-IDF Vectorization
+      │
+      ▼
+Linear SVM Training
+      │
+      ▼
+Model Evaluation
+(Accuracy, Classification Report,
+Confusion Matrix)
+      │
+      ▼
+Visualization
+(Pie Chart & Word Clouds)
+      │
+      ▼
+Export Results
+(CSV Files, Images,
+Trained Model)
+```
+
+---
+
+# 🛠 Technologies
+
+- Python
+- Transformers (Hugging Face)
+- DistilBERT
+- Scikit-learn
+- Linear Support Vector Machine (Linear SVM)
+- TF-IDF Vectorizer
+- Pandas
+- NumPy
+- Matplotlib
+- WordCloud
+- youtube-comment-downloader
+- Pickle
+- Logging
+
+---
+
+# 📌 Code Overview
+
+Below is the implementation workflow and code snippets for each major component of the project.
+
+## 🔍 1. YouTube Comment Scraping
+
+This module uses the `youtube-comment-downloader` library to collect comments from one or multiple YouTube videos and store them as a raw CSV dataset.
 
 <pre><code>
 def scrape(video_urls, max_comments):
     downloader = YoutubeCommentDownloader()
     rows = []
     for url in video_urls:
-        logging.info(f"Memulai scraping untuk URL: {url}")
+        logging.info(f"Starting scraping for URL: {url}")
         try:
             comments = downloader.get_comments_from_url(url, sort_by=1)
             count = 0
@@ -31,115 +107,179 @@ def scrape(video_urls, max_comments):
                 count += 1
                 if count >= max_comments:
                     break
-            logging.info(f"Berhasil mengumpulkan {count} komentar dari {url}")
+            logging.info(f"Collected {count} comments from {url}")
         except Exception as e:
-            logging.error(f"Gagal melakukan scraping pada {url}: {e}")
+            logging.error(f"Failed to scrape {url}: {e}")
         time.sleep(1)
-    
+
     if not rows:
-        logging.warning("Tidak ada komentar yang berhasil di-scrape. Menggunakan data kosong.")
-        
+        logging.warning("No comments were collected.")
+
     df = pd.DataFrame(rows)
     output_path = os.path.join(OUTPUT_DIR, "1_raw_comments.csv")
     df.to_csv(output_path, index=False, encoding="utf-8-sig")
-    logging.info(f"Data mentah disimpan ke {output_path}")
+    logging.info(f"Raw dataset saved to {output_path}")
     return df
 </code></pre>
 
-### 🧹 2. Preprocessing Teks (Pembersihan Bahasa Inggris)
-Komentar yang didapat dibersihkan dari komponen yang mengganggu analisis seperti tautan (URL), sebutan akun (@mentions), angka, simbol, serta membuang kata umum yang tidak memiliki makna (*Stopwords* bahasa Inggris).
+---
+
+## 🧹 2. Text Preprocessing
+
+Collected comments are cleaned by removing URLs, mentions, numbers, special characters, and English stopwords before feature extraction.
 
 <pre><code>
 def clean_text(text):
     if not isinstance(text, str):
         return ""
     text = text.lower()
-    text = re.sub(r"http\S+|www\S+", " ", text)  # Hapus URL
-    text = re.sub(r"@\w+", " ", text)           # Hapus mentions
-    text = re.sub(r"[^a-zA-Z\s]", " ", text)     # Hapus angka & simbol
-    # Stopword removal
-    text = " ".join(w for w in text.split() if w not in ENGLISH_STOP_WORDS)
+    text = re.sub(r"http\S+|www\S+", " ", text)
+    text = re.sub(r"@\w+", " ", text)
+    text = re.sub(r"[^a-zA-Z\s]", " ", text)
+
+    text = " ".join(
+        w for w in text.split()
+        if w not in ENGLISH_STOP_WORDS
+    )
+
     return text.strip()
 </code></pre>
 
-### 🏷️ 3. Pseudo-Labeling Menggunakan DistilBERT
-Karena data komentar dari scraping tidak memiliki label (Positif/Negatif), fitur ini memanfaatkan model Deep Learning pra-latih `distilbert-base-uncased-finetuned-sst-2-english` untuk memberikan label otomatis (*pseudo-label*).
+---
+
+## 🏷️ 3. Automatic Pseudo Labeling with DistilBERT
+
+Since scraped comments are unlabeled, the project uses the pretrained `distilbert-base-uncased-finetuned-sst-2-english` model to generate automatic sentiment labels.
 
 <pre><code>
 def pseudo_label(df):
-    logging.info("Memulai proses pseudo-labeling dengan DistilBERT...")
-    if df.empty:
-        logging.warning("Data kosong, melewati proses pseudo-labeling.")
-        df["sentiment"] = []
-        return df
+    logging.info("Starting pseudo labeling with DistilBERT...")
 
-    clf = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
+    clf = pipeline(
+        "sentiment-analysis",
+        model="distilbert-base-uncased-finetuned-sst-2-english"
+    )
+
     labels = []
-    
-    for idx, t in enumerate(df["clean_comment"]):
-        r = clf(t[:512])[0]
-        labels.append("Positive" if r["label"] == "POSITIVE" else "Negative")
-        if (idx + 1) % 100 == 0:
-            logging.info(f"Telah melabeli {idx + 1} komentar...")
-            
+
+    for t in df["clean_comment"]:
+        result = clf(t[:512])[0]
+        labels.append(
+            "Positive"
+            if result["label"] == "POSITIVE"
+            else "Negative"
+        )
+
     df["sentiment"] = labels
-    output_path = os.path.join(OUTPUT_DIR, "3_pseudo_labels.csv")
-    df.to_csv(output_path, index=False, encoding="utf-8-sig")
-    logging.info(f"Pseudo-labeling selesai. Hasil disimpan ke {output_path}")
     return df
 </code></pre>
 
-### 🤖 4. Ekstraksi TF-IDF & Pelatihan Model SVM
-Teks bersih diubah menjadi matriks angka menggunakan `TfidfVectorizer`, kemudian data dibagi (*split*) sebesar 80:20 untuk melatih algoritma `LinearSVC` (SVM) dalam mengklasifikasikan arah sentimen.
+---
+
+## 🤖 4. TF-IDF Feature Extraction & Linear SVM Training
+
+Cleaned text is transformed into TF-IDF vectors before training a Linear Support Vector Machine classifier using an 80:20 train-test split.
 
 <pre><code>
 def train_svm(df):
-    if df.empty or "sentiment" not in df.columns:
-        logging.error("Data tidak valid untuk training model.")
-        return
-
-    logging.info("Memulai ekstraksi fitur dengan TF-IDF Vectorizer...")
     vectorizer = TfidfVectorizer(max_features=5000)
+
     X = vectorizer.fit_transform(df["clean_comment"])
     y = df["sentiment"]
-    
-    if len(y.unique()) < 2:
-        logging.error("Training dibatalkan karena data hanya memiliki 1 jenis kelas sentimen.")
-        return
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+        X,
+        y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y
     )
-    
-    logging.info("Melatih model Linear SVM...")
+
     model = LinearSVC()
     model.fit(X_train, y_train)
-    pred = model.predict(X_test)
+
+    predictions = model.predict(X_test)
 </code></pre>
 
 ---
 
-## 📁 Struktur Folder & Output
-Setelah program dijalankan, semua aset hasil analisis akan otomatis terorganisir seperti berikut:
-- `sentimen.py` : Skrip Python utama untuk menjalankan seluruh proses.
-- `requirements.txt` : Daftar pustaka (dependencies) yang dibutuhkan.
-- `process.log` : Catatan log proses eksekusi program.
-- `output/` : Folder hasil yang berisi berkas data `.csv`, model tersimpan (`svm_model.pkl`), serta aset visualisasi (`pie_chart.png`, `confusion_matrix.png`, `wordcloud_positive.png`, dll).
+# 📂 Project Structure & Output
+
+After execution, the project automatically organizes all generated files into the following structure:
+
+```text
+.
+├── sentimen.py
+├── requirements.txt
+├── process.log
+├── README.md
+└── output/
+    ├── 1_raw_comments.csv
+    ├── 2_clean_comments.csv
+    ├── 3_pseudo_labels.csv
+    ├── svm_model.pkl
+    ├── confusion_matrix.png
+    ├── pie_chart.png
+    ├── wordcloud_positive.png
+    ├── wordcloud_negative.png
+    └── ...
+```
 
 ---
 
-## 🛠️ Cara Menjalankan Proyek di Laptop Kamu
+# ⚙ Installation
 
-1. **Clone Repositori ini:**
-<pre><code>git clone https://github.com/AlAkbar44/Youtube-Sentimen-Analysis.git</code></pre>
+### 1. Clone the Repository
 
-2. **Masuk ke Folder Proyek:**
-<pre><code>cd Youtube-Sentimen-Analysis</code></pre>
+```bash
+git clone https://github.com/AlAkbar44/Youtube-Sentimen-Analysis.git
+```
 
-3. **Instal Seluruh Library yang Dibutuhkan:**
-<pre><code>pip3 install -r requirements.txt</code></pre>
+### 2. Navigate to the Project Directory
 
-4. **Jalankan Program Utama:**
-<pre><code>python3 sentimen.py</code></pre>
+```bash
+cd Youtube-Sentimen-Analysis
+```
 
-*Catatan: Gunakan perintah `pip3` dan `python3` jika kamu menjalankan proyek ini menggunakan sistem operasi macOS.*
+### 3. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Run the Application
+
+```bash
+python sentimen.py
+```
+
+> **macOS/Linux users:** Use `python3` and `pip3` if required by your Python installation.
+
+---
+
+# 📊 Generated Outputs
+
+The pipeline automatically generates:
+
+- Raw YouTube comments dataset
+- Cleaned dataset
+- Pseudo-labeled dataset
+- Trained Linear SVM model
+- Confusion Matrix
+- Classification Report
+- Pie Chart
+- Positive Word Cloud
+- Negative Word Cloud
+- Execution log
+
+---
+
+# 👨‍💻 Author
+
+**Al Akbar Himawan**
+
+Junior Data Analyst | Python | SQL | Machine Learning | NLP | Data Visualization
+
+- GitHub: https://github.com/AlAkbar44
+- LinkedIn: https://www.linkedin.com/in/alakbarhimawan
+- Email: himawanalakbar6@gmail.com
